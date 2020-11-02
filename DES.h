@@ -2,9 +2,9 @@
 #ifndef DES_H
 #define DES_H
 #include "Key.h"
-#define IP_fun(IP,num) new_block64b |= ((block64b >> IP) & 0x01) << num
-#define E_fun(E,num) block48b |= (unsigned long long)((block32b >> E) & 0x01) << num
-#define P_fun(P, num) new_block32b |= ((block32b >> P) & 0x01) << num
+#define IP_fun(IP,num) new_block64b |= ((*block64b >> IP) & 0x01) << num
+#define E_fun(E,num) block48b |= (unsigned long long)((*block32b >> E) & 0x01) << num
+#define P_fun(P, num) new_block32b |= ((*block32b >> P) & 0x01) << num
 template < typename T >
 class Base_DES
 {
@@ -23,26 +23,26 @@ class DES :public Base_DES<T>
 {
 public:
 	Key key;
-	unsigned long long* block_key;
+	const unsigned long long* block_key;
 	DES() {};
 	~DES() {};
 	T Encrypt(T block)override {
 
 		unsigned long L0, R0;
-		block = initial_permutation(block);
+		block = initial_permutation(&block);
 		L0 = (unsigned long)(block >> 32);
 		R0 = (unsigned long)(block);
 
 		feistel_cipher(&L0, &R0, block_key);
-		block = join_32bits_to_64bits(L0, R0);
-		block = final_permutation(block);
+		block = join_32bits_to_64bits(&L0, &R0);
+		block = final_permutation(&block);
 		return block;
 	} 
 	void SetKey(unsigned long long key64) {
 		block_key = key.GetKey(key64);
 	}
 private:
-	unsigned long long final_permutation(unsigned long long block64b) {
+	unsigned long long final_permutation(const unsigned long long* block64b) {
 		unsigned long long new_block64b = 0;
 		/*for (DWORD i = 0; i < 64; ++i) {
 			new_block64b |= ((block64b >> (64 - __FP[i])) & 0x01) << (63 - i);
@@ -115,14 +115,14 @@ private:
 		//cout << bitset<sizeof(new_block64b)* CHAR_BIT>(new_block64b) << endl << endl;
 		return new_block64b;
 	}
-	unsigned long long join_32bits_to_64bits(unsigned long block32b_1, unsigned long block32b_2) {
+	unsigned long long join_32bits_to_64bits(const unsigned long* block32b_1, const unsigned long* block32b_2) {
 		unsigned long long block64b;
 		block64b = (unsigned long long)block32b_1;
-		block64b = (unsigned long long)(block64b << 32) | block32b_2;
+		block64b = (unsigned long long)(block64b << 32) | *block32b_2;
 		return block64b;
 	}
 	
-	unsigned long long initial_permutation(unsigned long long block64b) {	
+	inline unsigned long long initial_permutation(const unsigned long long* block64b) {	
 		unsigned long long new_block64b = 0;
 		/*for (DWORD i = 0; i < 64; ++i) {
 			new_block64b |= ((block64b >> (64 - __IP[i])) & 0x01) << (63 - i);
@@ -197,10 +197,10 @@ private:
 		//cout << bitset<sizeof(new_block64b)* CHAR_BIT>(new_block64b) << endl << endl;
 		return new_block64b;
 	}
-	void feistel_cipher(unsigned long* N1, unsigned long* N2, unsigned long long* keys48b) {
+	inline void feistel_cipher(unsigned long* N1, unsigned long* N2,const unsigned long long* keys48b) {
 
-			for (int8_t round = 0; round < 16; ++round) {
-				round_feistel_cipher(N1, N2, keys48b[round]);
+			for (DWORD round = 0; round < 16; ++round) {
+				round_feistel_cipher(N1, N2, &keys48b[round]);
 			}
 			swap(N1, N2);
 			
@@ -220,19 +220,19 @@ private:
 		*N1 = *N2;
 		*N2 = temp;
 	}
-	void round_feistel_cipher(unsigned long* N1, unsigned long* N2, unsigned long long key48b) {
+	inline void round_feistel_cipher(unsigned long* N1, unsigned long* N2, const unsigned long long* key48b) {
 		unsigned long temp = *N2;
-		*N2 = func_F(*N2, key48b) ^ *N1;		
+		*N2 = func_F(N2, key48b) ^ *N1;		
 		*N1 = temp;
 	}
-	unsigned long func_F(unsigned long block32b, unsigned long long key48b) {		
+	inline unsigned long func_F(unsigned long* block32b,const unsigned long long* key48b) {		
 		unsigned long long block48b = expansion_permutation(block32b);
-		block48b ^= key48b;										
-		block32b = substitutions(block48b);						
+		block48b ^= *key48b;										
+		block32b = substitutions(&block48b);						
 		return permutation(block32b);
 	}
 	//#define E_fun(E,num) block48b |= (unsigned long long)((block32b >> E) & 0x01) << num
-	unsigned long long expansion_permutation(unsigned long block32b) {			//расширяющая перестановка на 32-х битный блок
+	inline unsigned long long expansion_permutation(const unsigned long* block32b) {			//расширяющая перестановка на 32-х битный блок
 		unsigned long long block48b = 0;
 		/*for (DWORD i = 0; i < 48; ++i) {
 			block48b |= (unsigned long long)((block32b >> (32 - __EP[i])) & 0x01) << (63 - i);
@@ -287,53 +287,83 @@ private:
 		E_fun(E_47, 16);
 		return block48b;
 	}
-	unsigned long substitutions(unsigned long long block48b) {					//S-boxes
+	unsigned long* substitutions(const unsigned long long* block48b) {					//S-boxes
 		unsigned char blocks4b[4], blocks6b[8] = { 0 };//8 блоков по 6 бит, и по 4, в одном эл-те массива содержится 2 блока по 4 бита
 		split_48bits_to_6bits(block48b, blocks6b);//принимается 48-битный блок, разбиваем его на блоки по 6 бит
 		substitution_6bits_to_4bits(blocks6b, blocks4b);//подстановка 6 битовых блоков в 4-битные
 		return join_4bits_to_32bits(blocks4b);
 	}
-	void split_48bits_to_6bits(unsigned long long block48b, unsigned char* blocks6b) {
+	void split_48bits_to_6bits(const unsigned long long* block48b, unsigned char* blocks6b) {
 		/*for (DWORD i = 0; i < 8; ++i) {
 			blocks6b[i] = (block48b >> (58 - (i * 6))) << 2;
 		}*/
-		blocks6b[0] = (block48b >> 58) << 2;
-		blocks6b[1] = (block48b >> 52) << 2;
-		blocks6b[2] = (block48b >> 46) << 2;
-		blocks6b[3] = (block48b >> 40) << 2;
-		blocks6b[4] = (block48b >> 34) << 2;
-		blocks6b[5] = (block48b >> 28) << 2;
-		blocks6b[6] = (block48b >> 22) << 2;
-		blocks6b[7] = (block48b >> 16) << 2;
+		blocks6b[0] = (*block48b >> 58) << 2;
+		blocks6b[1] = (*block48b >> 52) << 2;
+		blocks6b[2] = (*block48b >> 46) << 2;
+		blocks6b[3] = (*block48b >> 40) << 2;
+		blocks6b[4] = (*block48b >> 34) << 2;
+		blocks6b[5] = (*block48b >> 28) << 2;
+		blocks6b[6] = (*block48b >> 22) << 2;
+		blocks6b[7] = (*block48b >> 16) << 2;
 	}
-	void substitution_6bits_to_4bits(unsigned char* blocks6b, unsigned char* blocks4b) {
+	void substitution_6bits_to_4bits(const unsigned char* blocks6b, unsigned char* blocks4b) {
 		unsigned char block2b, block4b;
-
-		for (unsigned char i = 0, j = 0; i < 8; i += 2, ++j) {//пропускаем блок через таблицу S-box 
-			block2b = extreme_bits(blocks6b[i]);
-			block4b = middle_bits(blocks6b[i]);
-			blocks4b[j] = __Sbox[i][block2b][block4b];
-
-			block2b = extreme_bits(blocks6b[i + 1]);
-			block4b = middle_bits(blocks6b[i + 1]);
-			blocks4b[j] = (blocks4b[j] << 4) | __Sbox[i + 1][block2b][block4b];
-		}
+		//cout << "START " << endl;
+		//for (DWORD i = 0, j = 0; i < 8; i += 2, ++j) {//пропускаем блок через таблицу S-box 
+		//	block2b = extreme_bits(blocks6b[i]);
+		//	block4b = middle_bits(blocks6b[i]);
+		//	blocks4b[j] = __Sbox[i][block2b][block4b];
+		//	block2b = extreme_bits(blocks6b[i + 1]);
+		//	block4b = middle_bits(blocks6b[i + 1]);
+		//	blocks4b[j] = (blocks4b[j] << 4) | __Sbox[i + 1][block2b][block4b];
+		//	cout << "block2b = extreme_bits(blocks6b[" << i << "]);" << endl;
+		//	cout << "block4b = middle_bits(blocks6b[" << i << "]);" << endl;
+		//	cout << "blocks4b[" << j << "] = __Sbox_" << i << "[block2b][block4b];" << endl;
+		//	cout << "block2b = extreme_bits(blocks6b[" << i +1<< "]);" << endl;
+		//	cout << "block4b = middle_bits(blocks6b[" << i+1 << "]);" << endl;
+		//	cout << "blocks4b[" << j << "] = (blocks4b[" << j << "] << 4) | __Sbox_" << i + 1 << "[block2b][block4b];" << endl;
+		//}
+		//cout << "end " << endl;
+		block2b = extreme_bits(&blocks6b[0]);
+		block4b = middle_bits(&blocks6b[0]);
+		blocks4b[0] = __Sbox_0[block2b][block4b];
+		block2b = extreme_bits(&blocks6b[1]);
+		block4b = middle_bits(&blocks6b[1]);
+		blocks4b[0] = (blocks4b[0] << 4) | __Sbox_1[block2b][block4b];
+		block2b = extreme_bits(&blocks6b[2]);
+		block4b = middle_bits(&blocks6b[2]);
+		blocks4b[1] = __Sbox_2[block2b][block4b];
+		block2b = extreme_bits(&blocks6b[3]);
+		block4b = middle_bits(&blocks6b[3]);
+		blocks4b[1] = (blocks4b[1] << 4) | __Sbox_3[block2b][block4b];
+		block2b = extreme_bits(&blocks6b[4]);
+		block4b = middle_bits(&blocks6b[4]);
+		blocks4b[2] = __Sbox_4[block2b][block4b];
+		block2b = extreme_bits(&blocks6b[5]);
+		block4b = middle_bits(&blocks6b[5]);
+		blocks4b[2] = (blocks4b[2] << 4) | __Sbox_5[block2b][block4b];
+		block2b = extreme_bits(&blocks6b[6]);
+		block4b = middle_bits(&blocks6b[6]);
+		blocks4b[3] = __Sbox_6[block2b][block4b];
+		block2b = extreme_bits(&blocks6b[7]);
+		block4b = middle_bits(&blocks6b[7]);
+		blocks4b[3] = (blocks4b[3] << 4) | __Sbox_7[block2b][block4b];
 	}
-	unsigned char extreme_bits(unsigned char block6b) {
-		return ((block6b >> 6) & 0x2) | ((block6b >> 2) & 0x1);
+	unsigned char extreme_bits(const unsigned char* block6b) {
+		return ((*block6b >> 6) & 0x2) | ((*block6b >> 2) & 0x1);
 	}
-	unsigned char middle_bits(unsigned char block6b) {
-		return (block6b >> 3) & 0xF;
+	unsigned char middle_bits(const unsigned char* block6b) {
+		return (*block6b >> 3) & 0xF;
 	}
-	unsigned long join_4bits_to_32bits(unsigned char* blocks4b) {
+	unsigned long* join_4bits_to_32bits(unsigned char* blocks4b) {
 		unsigned long block32b;
 		for (unsigned char* p = blocks4b; p < blocks4b + 4; ++p) {
 			block32b = (block32b << 8) | *p;
 		}
-		return block32b;
+		return &block32b;
 	}
 	// #defined P_fun(P, num) new_block32b |= ((block32b >> P) & 0x01) << num
-	unsigned long permutation(unsigned long block32b) {						//перестановка таблицы Р
+	unsigned long permutation(const unsigned long* block32b) {						//перестановка таблицы Р
 		unsigned long new_block32b = 0;
 		//for (DWORD i = 0; i < 32; ++i) {
 		//	new_block32b |= ((block32b >> (32 - __P[i])) & 0x01) << (31 - i);
